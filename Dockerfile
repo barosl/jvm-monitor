@@ -14,4 +14,6 @@ COPY src src
 RUN export JAVA_HOME=$(java -XshowSettings:properties -version 2>&1 | grep java.home | awk '{print $3}'); \
     gcc -O2 -shared -fPIC -Wall -Werror -I$JAVA_HOME/include -I$JAVA_HOME/include/linux  -I$JAVA_HOME/../include -I$JAVA_HOME/../include/linux src/main.c
 
-CMD java -agentpath:./a.out='catch_cls=LTestApp;,log_path=/log.txt' TestApp && cat /log.txt
+COPY cfg.txt .
+
+CMD java -agentpath:./a.out=cfg=cfg.txt TestApp && cat log.txt

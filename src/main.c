@@ -4,7 +4,7 @@
 
 #define PROG "jvm-monitor"
 #define MAX_FRAME_CNT 5
-#define SEPS ",="
+#define SEPS ","
 
 static char sel_catch_cls_sig[100];
 static FILE *sel_log_fp;
@@ -214,35 +214,90 @@ finalize_func:
     (*jvmti)->Deallocate(jvmti, (void*)catch_cls_gen);
 }
 
+static int apply_cfg(const char *key, const char *val) {
+    if (strcmp(key, "catch_cls") == 0) {
+        snprintf(sel_catch_cls_sig, sizeof(sel_catch_cls_sig), "%s", val);
+    } else if (strcmp(key, "log_file") == 0) {
+        if (sel_log_fp) {
+            fclose(sel_log_fp);
+        }
+        sel_log_fp = fopen(val, "w");
+    } else {
+        fprintf(stderr, PROG ": Unrecognized configuration value: key=%s, val=%s\n", key, val);
+        return 1;
+    }
+    return 0;
+}
+
+static int parse_opts(char *opts) {
+    *sel_catch_cls_sig = '\0';
+    sel_log_fp = NULL;
+
+    for (char *token = strtok(opts, SEPS);token;token = strtok(NULL, SEPS)) {
+        char *sep = strchr(token, '=');
+        if (!sep) {
+            fprintf(stderr, PROG ": Unrecognized configuration string: %s\n", token);
+            return 1;
+        }
+        *sep = '\0';
+        char *key = token;
+        char *val = sep + 1;
+        if (strcmp(key, "cfg") == 0) {
+            FILE *fin = fopen(val, "r");
+            if (!fin) {
+                fprintf(stderr, PROG ": Unable to open the configuration file: %s\n", val);
+                return 1;
+            }
+            char buf[512];
+            while (fgets(buf, sizeof(buf), fin)) {
+                char *sep = strchr(buf, '=');
+                if (!sep) {
+                    fclose(fin);
+                    fprintf(stderr, PROG ": Unrecognized configuration string: %s\n", buf);
+                    return 1;
+                }
+                *sep = '\0';
+                char *key = buf;
+                char *val = sep + 1;
+                if (*val) {
+                    char *val_end = val + strlen(val) - 1;
+                    while (val_end >= val && (*val_end == '\n' || *val_end == '\r')) {
+                        *val_end = '\0';
+                        val_end--;
+                    }
+                }
+                if (apply_cfg(key, val)) {
+                    fclose(fin);
+                    return 1;
+                }
+            }
+            fclose(fin);
+        } else {
+            if (apply_cfg(key, val)) {
+                return 1;
+            }
+        }
+    }
+
+    if (sel_log_fp) {
+        if (setvbuf(sel_log_fp, NULL, _IONBF, 0)) {
+            fprintf(stderr, PROG ": setvbuf failed\n");
+            return 1;
+        }
+    } else {
+        sel_log_fp = stderr;
+    }
+
+    return 0;
+}
+
 JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *opts, void *reserved) {
     jvmtiError err;
     jint err2;
 
     fprintf(stderr, PROG ": loaded\n");
 
-    *sel_catch_cls_sig = '\0';
-    char *token = strtok(opts, SEPS);
-    while (token) {
-        if (strcmp(token, "catch_cls") == 0) {
-            token = strtok(NULL, SEPS);
-            if (token) {
-                snprintf(sel_catch_cls_sig, sizeof(sel_catch_cls_sig), "%s", token);
-            }
-        } else if (strcmp(token, "log_path") == 0) {
-            token = strtok(NULL, SEPS);
-            if (token) {
-                sel_log_fp = fopen(token, "w");
-            }
-        }
-        token = strtok(NULL, SEPS);
-    }
-    if (!sel_log_fp) {
-        fprintf(stderr, PROG ": Unable to open a log file\n");
-        return 1;
-    }
-
-    if (setvbuf(sel_log_fp, NULL, _IONBF, 0)) {
-        fprintf(stderr, PROG ": setvbuf failed\n");
+    if (parse_opts(opts)) {
         return 1;
     }
 

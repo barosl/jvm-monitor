@@ -1,0 +1,2 @@
+catch_cls=LTestApp;
+log_file=log.txt
