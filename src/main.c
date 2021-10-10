@@ -144,8 +144,8 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
             var_idx++;
             const char *slot_name = var_idx < var_cnt ? vars[var_idx].name : "<unnamed>";
 
-            fprintf(sel_log_fp, "var_idx=%d\n", var_idx);
-            fprintf(sel_log_fp, "slot_name=%s\n", slot_name);
+            fprintf(sel_log_fp, "local_idx=%d\n", var_idx);
+            fprintf(sel_log_fp, "local_name=%s\n", slot_name);
 
             if (slot_obj) {
                 char *slot_cls_sig = NULL;
@@ -163,9 +163,9 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
                     goto finalize_slot_obj;
                 }
 
-                fprintf(sel_log_fp, "slot_type=object\n");
-                fprintf(sel_log_fp, "slot_cls_sig=%s\n", slot_cls_sig);
-                fprintf(sel_log_fp, "slot_to_string_text=%s\n", slot_to_string_text);
+                fprintf(sel_log_fp, "local_type=object\n");
+                fprintf(sel_log_fp, "local_cls_sig=%s\n", slot_cls_sig);
+                fprintf(sel_log_fp, "local_to_string_text=%s\n", slot_to_string_text);
 
 finalize_slot_obj:
                 (*env)->ReleaseStringUTFChars(env, slot_to_string_ret, slot_to_string_text);
@@ -178,36 +178,36 @@ finalize_slot_obj:
             jint slot_int;
             err = (*jvmti)->GetLocalInt(jvmti, thread, frame_idx, slot_idx, &slot_int);
             if (!err) {
-                fprintf(sel_log_fp, "slot_type=int\n");
-                fprintf(sel_log_fp, "slot_val=%d\n", slot_int);
+                fprintf(sel_log_fp, "local_type=int\n");
+                fprintf(sel_log_fp, "local_val=%d\n", slot_int);
                 continue;
             }
 
             jlong slot_long;
             err = (*jvmti)->GetLocalLong(jvmti, thread, frame_idx, slot_idx, &slot_long);
             if (!err) {
-                fprintf(sel_log_fp, "slot_type=long\n");
-                fprintf(sel_log_fp, "slot_val=%ld\n", slot_long);
+                fprintf(sel_log_fp, "local_type=long\n");
+                fprintf(sel_log_fp, "local_val=%ld\n", slot_long);
                 continue;
             }
 
             jfloat slot_float;
             err = (*jvmti)->GetLocalFloat(jvmti, thread, frame_idx, slot_idx, &slot_float);
             if (!err) {
-                fprintf(sel_log_fp, "slot_type=float\n");
-                fprintf(sel_log_fp, "slot_val=%f\n", slot_float);
+                fprintf(sel_log_fp, "local_type=float\n");
+                fprintf(sel_log_fp, "local_val=%f\n", slot_float);
                 continue;
             }
 
             jdouble slot_double;
             err = (*jvmti)->GetLocalDouble(jvmti, thread, frame_idx, slot_idx, &slot_double);
             if (!err) {
-                fprintf(sel_log_fp, "slot_type=double\n");
-                fprintf(sel_log_fp, "slot_val=%f\n", slot_double);
+                fprintf(sel_log_fp, "local_type=double\n");
+                fprintf(sel_log_fp, "local_val=%f\n", slot_double);
                 continue;
             }
 
-            fprintf(sel_log_fp, "slot_type=invalid\n");
+            fprintf(sel_log_fp, "local_type=invalid\n");
         }
 
 finalize_frame:

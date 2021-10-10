@@ -6,6 +6,7 @@ RUN apt-get update
 RUN apt-get -y --no-install-recommends install build-essential
 #RUN apt-get -y --no-install-recommends install default-jdk
 RUN DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends install openjdk-8-jdk
+RUN apt-get -y --no-install-recommends install python3
 
 COPY TestApp/TestApp.java ./
 RUN javac -g TestApp.java
@@ -15,5 +16,6 @@ RUN export JAVA_HOME=$(java -XshowSettings:properties -version 2>&1 | grep java.
     gcc -O2 -shared -fPIC -Wall -Werror -I$JAVA_HOME/include -I$JAVA_HOME/include/linux  -I$JAVA_HOME/../include -I$JAVA_HOME/../include/linux src/main.c
 
 COPY cfg.txt .
+COPY parse.py .
 
-CMD java -agentpath:./a.out=cfg=cfg.txt TestApp && cat log.txt
+CMD java -agentpath:./a.out=cfg=cfg.txt TestApp && cat log.txt && python3 parse.py log.txt
