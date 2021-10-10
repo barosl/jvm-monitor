@@ -6,46 +6,49 @@
 #define MAX_FRAME_CNT 5
 #define SEPS ","
 
-static char sel_catch_cls_sig[100];
-static char sel_throw_cls_sig[100];
+static char sel_catching_cls_sig[100];
+static char sel_throwing_cls_sig[100];
 static FILE *sel_log_fp;
 
-static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethodID throw_method, jlocation throw_loc, jobject exc_obj, jmethodID catch_method, jlocation catch_loc) {
+static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethodID throwing_method, jlocation throwing_loc, jobject exc_obj, jmethodID catching_method, jlocation catching_loc) {
     jvmtiError err;
     char *exc_cls_sig = NULL;
     char *exc_cls_gen = NULL;
     const char *exc_to_string_text = NULL;
-    char *catch_cls_sig = NULL;
-    char *catch_cls_gen = NULL;
-    char *throw_cls_sig = NULL;
-    char *throw_cls_gen = NULL;
+    char *catching_cls_sig = NULL;
+    char *catching_cls_gen = NULL;
+    char *throwing_cls_sig = NULL;
+    char *throwing_cls_gen = NULL;
     jobject exc_to_string_ret = NULL;
 
-    jclass catch_cls;
-    err = (*jvmti)->GetMethodDeclaringClass(jvmti, catch_method, &catch_cls);
+    jclass throwing_cls;
+    err = (*jvmti)->GetMethodDeclaringClass(jvmti, throwing_method, &throwing_cls);
     if (err) {
-        fprintf(stderr, PROG ": Unable to get the declaring class of catch_method: %d\n", err);
+        fprintf(stderr, PROG ": Unable to get the declaring class of throwing_method: %d\n", err);
         goto finalize_func;
     }
-    err = (*jvmti)->GetClassSignature(jvmti, catch_cls, &catch_cls_sig, &catch_cls_gen);
+    err = (*jvmti)->GetClassSignature(jvmti, throwing_cls, &throwing_cls_sig, &throwing_cls_gen);
     if (err) {
-        fprintf(stderr, PROG ": Unable to get the class signature of catch_cls: %d\n", err);
+        fprintf(stderr, PROG ": Unable to get the class signature of throwing_cls: %d\n", err);
         goto finalize_func;
     }
-    if (strcmp(catch_cls_sig, sel_catch_cls_sig) != 0) {
-        jclass throw_cls;
-        err = (*jvmti)->GetMethodDeclaringClass(jvmti, throw_method, &throw_cls);
-        if (err) {
-            fprintf(stderr, PROG ": Unable to get the declaring class of throw_method: %d\n", err);
+    if (strcmp(throwing_cls_sig, sel_throwing_cls_sig) != 0) {
+        if (!catching_method) {
             goto finalize_func;
         }
-        err = (*jvmti)->GetClassSignature(jvmti, throw_cls, &throw_cls_sig, &throw_cls_gen);
+        jclass catching_cls;
+        err = (*jvmti)->GetMethodDeclaringClass(jvmti, catching_method, &catching_cls);
         if (err) {
-            fprintf(stderr, PROG ": Unable to get the class signature of throw_cls: %d\n", err);
+            fprintf(stderr, PROG ": Unable to get the declaring class of catching_method: %d\n", err);
             goto finalize_func;
         }
-        if (strcmp(throw_cls_sig, sel_throw_cls_sig) != 0) {
-            //fprintf(sel_log_fp, "* Skipping an exception event: catch_cls_sig = %s, throw_cls_sig = %s\n", catch_cls_sig, throw_cls_sig);
+        err = (*jvmti)->GetClassSignature(jvmti, catching_cls, &catching_cls_sig, &catching_cls_gen);
+        if (err) {
+            fprintf(stderr, PROG ": Unable to get the class signature of catching_cls: %d\n", err);
+            goto finalize_func;
+        }
+        if (strcmp(catching_cls_sig, sel_catching_cls_sig) != 0) {
+            //fprintf(sel_log_fp, "* Skipping an exception event: catching_cls_sig = %s, throwing_cls_sig = %s\n", catching_cls_sig, throwing_cls_sig);
             goto finalize_func;
         }
     }
@@ -246,17 +249,17 @@ finalize_func:
     (*jvmti)->Deallocate(jvmti, (void*)exc_cls_sig);
     (*jvmti)->Deallocate(jvmti, (void*)exc_cls_gen);
     (*env)->ReleaseStringUTFChars(env, exc_to_string_ret, exc_to_string_text);
-    (*jvmti)->Deallocate(jvmti, (void*)catch_cls_sig);
-    (*jvmti)->Deallocate(jvmti, (void*)catch_cls_gen);
-    (*jvmti)->Deallocate(jvmti, (void*)throw_cls_sig);
-    (*jvmti)->Deallocate(jvmti, (void*)throw_cls_gen);
+    (*jvmti)->Deallocate(jvmti, (void*)catching_cls_sig);
+    (*jvmti)->Deallocate(jvmti, (void*)catching_cls_gen);
+    (*jvmti)->Deallocate(jvmti, (void*)throwing_cls_sig);
+    (*jvmti)->Deallocate(jvmti, (void*)throwing_cls_gen);
 }
 
 static int apply_cfg(const char *key, const char *val) {
-    if (strcmp(key, "catch_cls") == 0) {
-        snprintf(sel_catch_cls_sig, sizeof(sel_catch_cls_sig), "%s", val);
-    } else if (strcmp(key, "throw_cls") == 0) {
-        snprintf(sel_throw_cls_sig, sizeof(sel_throw_cls_sig), "%s", val);
+    if (strcmp(key, "catching_cls") == 0) {
+        snprintf(sel_catching_cls_sig, sizeof(sel_catching_cls_sig), "%s", val);
+    } else if (strcmp(key, "throwing_cls") == 0) {
+        snprintf(sel_throwing_cls_sig, sizeof(sel_throwing_cls_sig), "%s", val);
     } else if (strcmp(key, "log_file") == 0) {
         if (sel_log_fp) {
             fclose(sel_log_fp);
@@ -270,8 +273,8 @@ static int apply_cfg(const char *key, const char *val) {
 }
 
 static int parse_opts(char *opts) {
-    *sel_catch_cls_sig = '\0';
-    *sel_throw_cls_sig = '\0';
+    *sel_catching_cls_sig = '\0';
+    *sel_throwing_cls_sig = '\0';
     sel_log_fp = NULL;
 
     for (char *token = strtok(opts, SEPS);token;token = strtok(NULL, SEPS)) {
