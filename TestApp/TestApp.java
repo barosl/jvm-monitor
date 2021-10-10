@@ -1,3 +1,10 @@
+class Inspect {
+    public static void inspect() {
+        try { throw new Throwable(); }
+        catch (Throwable e) {}
+    }
+}
+
 public class TestApp {
     static void b() {
         int a = 123;
@@ -22,5 +29,6 @@ public class TestApp {
         } catch (RuntimeException e2) {
             System.out.println("caught");
         }
+        Inspect.inspect();
     }
 }
