@@ -18,7 +18,11 @@ public class TestApp {
 
     static void a(int a_arg) {
         int a_local = 111;
-        b();
+        try {
+            b();
+        } finally {
+            System.out.println("finally");
+        }
     }
 
     public static void main(String[] args) {

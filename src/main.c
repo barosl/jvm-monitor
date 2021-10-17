@@ -1,16 +1,24 @@
 #include <stdio.h>
 #include <jvmti.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define PROG "jvm-monitor"
-#define MAX_FRAME_CNT 5
+#define MAX_FRAME_CNT 10
 #define SEPS ","
 
 static char sel_catching_cls_sig[100];
 static char sel_throwing_cls_sig[100];
 static FILE *sel_log_fp;
 
-static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethodID throwing_method, jlocation throwing_loc, jobject exc_obj, jmethodID catching_method, jlocation catching_loc) {
+typedef struct {
+    jmethodID whm_put_method;
+    jmethodID whm_contains_method;
+    jobject exc_cache;
+    jobject true_obj;
+} State;
+
+static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd, jmethodID throwing_method, jlocation throwing_loc, jobject exc_obj, jmethodID catching_method, jlocation catching_loc) {
     jvmtiError err;
     char *exc_cls_sig = NULL;
     char *exc_cls_gen = NULL;
@@ -19,7 +27,7 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
     char *catching_cls_gen = NULL;
     char *throwing_cls_sig = NULL;
     char *throwing_cls_gen = NULL;
-    jobject exc_to_string_ret = NULL;
+    jobject exc_to_string = NULL;
 
     jclass throwing_cls;
     err = (*jvmti)->GetMethodDeclaringClass(jvmti, throwing_method, &throwing_cls);
@@ -65,18 +73,29 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
         goto finalize_func;
     }
 
-    jmethodID exc_to_string = (*env)->GetMethodID(env, exc_cls, "toString", "()Ljava/lang/String;");
-    if (!exc_to_string) {
-        fprintf(stderr, PROG ": Unable to get the toString() method of exc_cls\n");
+    State *state = NULL;
+    err = (*jvmti)->GetThreadLocalStorage(jvmti, thrd, (void**)&state);
+    if (err) {
+        fprintf(stderr, PROG ": GetThreadLocalStorage failed: %d\n", err);
         goto finalize_func;
     }
-    exc_to_string_ret = (*env)->CallObjectMethod(env, exc_obj, exc_to_string);
-    if (!exc_to_string_ret) {
-        fprintf(stderr, PROG ": exc_obj.toString() returned null\n");
+    jobject prev_exc = (*env)->CallObjectMethod(env, state->exc_cache, state->whm_put_method, exc_obj, state->true_obj);
+    if (prev_exc) {
+        fprintf(stderr, PROG ": Skipping a rethrown exception: %s\n", exc_cls_sig);
         goto finalize_func;
     }
 
-    exc_to_string_text = (*env)->GetStringUTFChars(env, exc_to_string_ret, NULL);
+    jmethodID exc_to_string_method = (*env)->GetMethodID(env, exc_cls, "toString", "()Ljava/lang/String;");
+    if (!exc_to_string_method) {
+        fprintf(stderr, PROG ": Unable to get the toString() method of exc_cls\n");
+        goto finalize_func;
+    }
+    exc_to_string = (*env)->CallObjectMethod(env, exc_obj, exc_to_string_method);
+    if (!exc_to_string) {
+        fprintf(stderr, PROG ": exc_obj.toString() returned null\n");
+        goto finalize_func;
+    }
+    exc_to_string_text = (*env)->GetStringUTFChars(env, exc_to_string, NULL);
     if (!exc_to_string_text) {
         fprintf(stderr, PROG ": GetStringUTFChars() returned null\n");
         goto finalize_func;
@@ -84,7 +103,7 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
 
     jvmtiFrameInfo frames[MAX_FRAME_CNT];
     jint frame_cnt;
-    err = (*jvmti)->GetStackTrace(jvmti, thread, 0, sizeof(frames)/sizeof(frames[0]), frames, &frame_cnt);
+    err = (*jvmti)->GetStackTrace(jvmti, thrd, 0, sizeof(frames)/sizeof(frames[0]), frames, &frame_cnt);
     if (err) {
         fprintf(stderr, PROG ": GetStackTrace() failed: %d\n", err);
         goto finalize_func;
@@ -161,7 +180,7 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
         while (1) {
             slot_idx++;
             jobject slot_obj = NULL;
-            err = (*jvmti)->GetLocalObject(jvmti, thread, frame_idx, slot_idx, &slot_obj);
+            err = (*jvmti)->GetLocalObject(jvmti, thrd, frame_idx, slot_idx, &slot_obj);
             if (err) {
                 if (err == JVMTI_ERROR_OPAQUE_FRAME) {
                     break;
@@ -189,9 +208,9 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
                 const char *slot_to_string_text = NULL;
 
                 jclass slot_cls = (*env)->GetObjectClass(env, slot_obj);
-                jmethodID slot_to_string = (*env)->GetMethodID(env, slot_cls, "toString", "()Ljava/lang/String;");
-                jobject slot_to_string_ret = (*env)->CallObjectMethod(env, slot_obj, slot_to_string);
-                slot_to_string_text = (*env)->GetStringUTFChars(env, slot_to_string_ret, NULL);
+                jmethodID slot_to_string_method = (*env)->GetMethodID(env, slot_cls, "toString", "()Ljava/lang/String;");
+                jobject slot_to_string = (*env)->CallObjectMethod(env, slot_obj, slot_to_string_method);
+                slot_to_string_text = (*env)->GetStringUTFChars(env, slot_to_string, NULL);
 
                 err = (*jvmti)->GetClassSignature(jvmti, slot_cls, &slot_cls_sig, &slot_cls_gen);
                 if (err) {
@@ -204,7 +223,7 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
                 fprintf(sel_log_fp, "local_val=%s\n", slot_to_string_text);
 
 finalize_slot_obj:
-                (*env)->ReleaseStringUTFChars(env, slot_to_string_ret, slot_to_string_text);
+                (*env)->ReleaseStringUTFChars(env, slot_to_string, slot_to_string_text);
                 (*env)->DeleteLocalRef(env, slot_obj);
                 (*jvmti)->Deallocate(jvmti, (void*)slot_cls_sig);
                 (*jvmti)->Deallocate(jvmti, (void*)slot_cls_gen);
@@ -212,7 +231,7 @@ finalize_slot_obj:
             }
 
             jint slot_int;
-            err = (*jvmti)->GetLocalInt(jvmti, thread, frame_idx, slot_idx, &slot_int);
+            err = (*jvmti)->GetLocalInt(jvmti, thrd, frame_idx, slot_idx, &slot_int);
             if (!err) {
                 fprintf(sel_log_fp, "local_type=int\n");
                 fprintf(sel_log_fp, "local_val=%d\n", slot_int);
@@ -220,7 +239,7 @@ finalize_slot_obj:
             }
 
             jlong slot_long;
-            err = (*jvmti)->GetLocalLong(jvmti, thread, frame_idx, slot_idx, &slot_long);
+            err = (*jvmti)->GetLocalLong(jvmti, thrd, frame_idx, slot_idx, &slot_long);
             if (!err) {
                 fprintf(sel_log_fp, "local_type=long\n");
                 fprintf(sel_log_fp, "local_val=%ld\n", slot_long);
@@ -228,7 +247,7 @@ finalize_slot_obj:
             }
 
             jfloat slot_float;
-            err = (*jvmti)->GetLocalFloat(jvmti, thread, frame_idx, slot_idx, &slot_float);
+            err = (*jvmti)->GetLocalFloat(jvmti, thrd, frame_idx, slot_idx, &slot_float);
             if (!err) {
                 fprintf(sel_log_fp, "local_type=float\n");
                 fprintf(sel_log_fp, "local_val=%f\n", slot_float);
@@ -236,7 +255,7 @@ finalize_slot_obj:
             }
 
             jdouble slot_double;
-            err = (*jvmti)->GetLocalDouble(jvmti, thread, frame_idx, slot_idx, &slot_double);
+            err = (*jvmti)->GetLocalDouble(jvmti, thrd, frame_idx, slot_idx, &slot_double);
             if (!err) {
                 fprintf(sel_log_fp, "local_type=double\n");
                 fprintf(sel_log_fp, "local_val=%f\n", slot_double);
@@ -267,7 +286,7 @@ finalize_frame:
 finalize_func:
     (*jvmti)->Deallocate(jvmti, (void*)exc_cls_sig);
     (*jvmti)->Deallocate(jvmti, (void*)exc_cls_gen);
-    (*env)->ReleaseStringUTFChars(env, exc_to_string_ret, exc_to_string_text);
+    (*env)->ReleaseStringUTFChars(env, exc_to_string, exc_to_string_text);
     (*jvmti)->Deallocate(jvmti, (void*)catching_cls_sig);
     (*jvmti)->Deallocate(jvmti, (void*)catching_cls_gen);
     (*jvmti)->Deallocate(jvmti, (void*)throwing_cls_sig);
@@ -354,6 +373,40 @@ static int parse_opts(char *opts) {
     return 0;
 }
 
+static void JNICALL on_thrd_start(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd) {
+    jvmtiError err;
+
+    State *state = (State*)malloc(sizeof(State));
+    err = (*jvmti)->SetThreadLocalStorage(jvmti, thrd, state);
+    if (err) {
+        fprintf(stderr, PROG ": SetThreadLocalStorage failed: %d\n", err);
+        return;
+    }
+
+    jclass whm_cls = (*env)->FindClass(env, "java/util/WeakHashMap");
+    jmethodID whm_init_method = (*env)->GetMethodID(env, whm_cls, "<init>", "()V");
+    state->whm_put_method = (*env)->GetMethodID(env, whm_cls, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    state->whm_contains_method = (*env)->GetMethodID(env, whm_cls, "containsKey", "(Ljava/lang/Object;)Z");
+
+    jclass boolean_cls = (*env)->FindClass(env, "java/lang/Boolean");
+    jmethodID boolean_value_of_method = (*env)->GetStaticMethodID(env, boolean_cls, "valueOf", "(Z)Ljava/lang/Boolean;");
+    state->true_obj = (*env)->CallStaticObjectMethod(env, boolean_cls, boolean_value_of_method, (jboolean)1);
+
+    state->exc_cache = (*env)->NewObject(env, whm_cls, whm_init_method);
+}
+
+static void JNICALL on_thrd_end(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd) {
+    jvmtiError err;
+
+    State *state = NULL;
+    err = (*jvmti)->GetThreadLocalStorage(jvmti, thrd, (void**)&state);
+    if (err) {
+        fprintf(stderr, PROG ": GetThreadLocalStorage failed: %d\n", err);
+        return;
+    }
+    free(state);
+}
+
 JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *opts, void *reserved) {
     jvmtiError err;
     jint err2;
@@ -383,6 +436,8 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *opts, void *reserved) {
 
     jvmtiEventCallbacks cbs = {};
     cbs.Exception = on_exc;
+    cbs.ThreadStart = on_thrd_start;
+    cbs.ThreadEnd = on_thrd_end;
     err = (*jvmti)->SetEventCallbacks(jvmti, &cbs, sizeof(cbs));
     if (err) {
         fprintf(stderr, PROG ": SetEventCallbacks error: %d\n", err);
@@ -391,7 +446,19 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *opts, void *reserved) {
 
     err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE, JVMTI_EVENT_EXCEPTION, NULL);
     if (err) {
-        fprintf(stderr, PROG ": SetEventNotificationMode error: %d\n", err);
+        fprintf(stderr, PROG ": SetEventNotificationMode failed for JVMTI_EVENT_EXCEPTION: %d\n", err);
+        return 1;
+    }
+
+    err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE, JVMTI_EVENT_THREAD_START, NULL);
+    if (err) {
+        fprintf(stderr, PROG ": SetEventNotificationMode failed for JVMTI_EVENT_THREAD_START: %d\n", err);
+        return 1;
+    }
+
+    err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE, JVMTI_EVENT_THREAD_END, NULL);
+    if (err) {
+        fprintf(stderr, PROG ": SetEventNotificationMode failed for JVMTI_EVENT_THREAD_END: %d\n", err);
         return 1;
     }
 
