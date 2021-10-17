@@ -16,6 +16,8 @@ typedef struct {
     jmethodID whm_contains_method;
     jobject exc_cache;
     jobject true_obj;
+    jclass arrays_cls;
+    jmethodID arrays_to_string_method;
 } State;
 
 static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd, jmethodID throwing_method, jlocation throwing_loc, jobject exc_obj, jmethodID catching_method, jlocation catching_loc) {
@@ -81,7 +83,7 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd, jmethodID
     }
     jobject prev_exc = (*env)->CallObjectMethod(env, state->exc_cache, state->whm_put_method, exc_obj, state->true_obj);
     if (prev_exc) {
-        fprintf(stderr, PROG ": Skipping a rethrown exception: %s\n", exc_cls_sig);
+        //fprintf(stderr, PROG ": Skipping a rethrown exception: %s\n", exc_cls_sig);
         goto finalize_func;
     }
 
@@ -97,7 +99,7 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd, jmethodID
     }
     exc_to_string_text = (*env)->GetStringUTFChars(env, exc_to_string, NULL);
     if (!exc_to_string_text) {
-        fprintf(stderr, PROG ": GetStringUTFChars() returned null\n");
+        fprintf(stderr, PROG ": GetStringUTFChars(exc_to_string) returned null\n");
         goto finalize_func;
     }
 
@@ -206,16 +208,26 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd, jmethodID
                 char *slot_cls_sig = NULL;
                 char *slot_cls_gen = NULL;
                 const char *slot_to_string_text = NULL;
+                jobject slot_to_string = NULL;
 
                 jclass slot_cls = (*env)->GetObjectClass(env, slot_obj);
-                jmethodID slot_to_string_method = (*env)->GetMethodID(env, slot_cls, "toString", "()Ljava/lang/String;");
-                jobject slot_to_string = (*env)->CallObjectMethod(env, slot_obj, slot_to_string_method);
-                slot_to_string_text = (*env)->GetStringUTFChars(env, slot_to_string, NULL);
-
                 err = (*jvmti)->GetClassSignature(jvmti, slot_cls, &slot_cls_sig, &slot_cls_gen);
                 if (err) {
                     fprintf(stderr, PROG ": GetClassSignature() failed: %d\n", err);
                     goto finalize_slot_obj;
+                }
+
+                if (slot_cls_sig[0] == '[') {
+                    slot_to_string = (*env)->CallStaticObjectMethod(env, state->arrays_cls, state->arrays_to_string_method, slot_obj);
+                } else {
+                    jmethodID slot_to_string_method = (*env)->GetMethodID(env, slot_cls, "toString", "()Ljava/lang/String;");
+                    slot_to_string = (*env)->CallObjectMethod(env, slot_obj, slot_to_string_method);
+                }
+
+                slot_to_string_text = (*env)->GetStringUTFChars(env, slot_to_string, NULL);
+                if (!slot_to_string_text) {
+                    fprintf(stderr, PROG ": GetStringUTFChars(slot_to_string) returned null\n");
+                    goto finalize_func;
                 }
 
                 fprintf(sel_log_fp, "local_type=object\n");
@@ -387,12 +399,14 @@ static void JNICALL on_thrd_start(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd) {
     jmethodID whm_init_method = (*env)->GetMethodID(env, whm_cls, "<init>", "()V");
     state->whm_put_method = (*env)->GetMethodID(env, whm_cls, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
     state->whm_contains_method = (*env)->GetMethodID(env, whm_cls, "containsKey", "(Ljava/lang/Object;)Z");
+    state->exc_cache = (*env)->NewObject(env, whm_cls, whm_init_method);
 
     jclass boolean_cls = (*env)->FindClass(env, "java/lang/Boolean");
     jmethodID boolean_value_of_method = (*env)->GetStaticMethodID(env, boolean_cls, "valueOf", "(Z)Ljava/lang/Boolean;");
     state->true_obj = (*env)->CallStaticObjectMethod(env, boolean_cls, boolean_value_of_method, (jboolean)1);
 
-    state->exc_cache = (*env)->NewObject(env, whm_cls, whm_init_method);
+    state->arrays_cls = (*env)->FindClass(env, "java/util/Arrays");
+    state->arrays_to_string_method = (*env)->GetStaticMethodID(env, state->arrays_cls, "deepToString", "([Ljava/lang/Object;)Ljava/lang/String;");
 }
 
 static void JNICALL on_thrd_end(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd) {
@@ -410,8 +424,6 @@ static void JNICALL on_thrd_end(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd) {
 JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *opts, void *reserved) {
     jvmtiError err;
     jint err2;
-
-    fprintf(stderr, PROG ": loaded\n");
 
     if (parse_opts(opts)) {
         return 1;
@@ -462,5 +474,6 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *opts, void *reserved) {
         return 1;
     }
 
+    fprintf(stderr, PROG ": Loaded successfully\n");
     return 0;
 }
