@@ -32,6 +32,7 @@ function onClickExc(ev) {
 {% for row in db %}
 <div class="exc" id="exc_{{loop.index0}}">
     <p>Exception: {{row.exc_cls_sig|emp_last_word}} [{{row.exc_to_string_text}}]</p>
+    <p>At: {{row.ts_usec}}</p>
     {% for frame in row.frames %}
     <hr>
     <p>Method: {{frame.method_cls_sig}}::<b>{{frame.method_name}}</b> ({{frame.method_sig}}) @ Line {{frame.line_num}}</p>

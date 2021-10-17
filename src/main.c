@@ -2,6 +2,7 @@
 #include <jvmti.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/time.h>
 
 #define PROG "jvm-monitor"
 #define MAX_FRAME_CNT 10
@@ -111,9 +112,17 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thrd, jmethodID
         goto finalize_func;
     }
 
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL)) {
+        fprintf(stderr, PROG ": gettimeofday() failed\n");
+        goto finalize_func;
+    }
+    long long ts_usec = tv.tv_sec * 1e6 + tv.tv_usec;
+
     fprintf(sel_log_fp, "---\n");
     fprintf(sel_log_fp, "exc_cls_sig=%s\n", exc_cls_sig);
     fprintf(sel_log_fp, "exc_to_string_text=%s\n", exc_to_string_text);
+    fprintf(sel_log_fp, "ts_usec=%lld\n", ts_usec);
 
     for (int frame_idx=0;frame_idx<frame_cnt;frame_idx++) {
         jvmtiFrameInfo *frame = &frames[frame_idx];

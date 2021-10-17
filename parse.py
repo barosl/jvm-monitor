@@ -36,21 +36,27 @@ def parse_java_vm_sig(sig):
     return parsed
 
 def proc(lines):
-    exc_cls_sig = None
-    exc_to_string_text = None
-    frames = []
+    res = {
+        'exc_cls_sig': None,
+        'exc_to_string_text': None,
+        'ts_usec': None,
+        'frames': [],
+    }
+
     cur_frame = None
     cur_locals = None
     for line in lines:
         key, val = line.split('=', 1)
         if key == 'exc_cls_sig':
-            exc_cls_sig = parse_java_vm_sig(val)
+            res['exc_cls_sig'] = parse_java_vm_sig(val)
         elif key == 'exc_to_string_text':
-            exc_to_string_text = val
+            res['exc_to_string_text'] = val
+        elif key == 'ts_usec':
+            res['ts_usec'] = int(val)
         elif key == 'frame_idx':
-            assert len(frames) == int(val)
+            assert len(res['frames']) == int(val)
             cur_frame = {'locals': []}
-            frames.append(cur_frame)
+            res['frames'].append(cur_frame)
         elif key == 'method_name':
             cur_frame['method_name'] = val
         elif key == 'method_sig':
@@ -74,11 +80,7 @@ def proc(lines):
         elif key == 'local_cls_sig':
             cur_locals['cls_sig'] = parse_java_vm_sig(val)
 
-    return {
-        'exc_cls_sig': exc_cls_sig,
-        'exc_to_string_text': exc_to_string_text,
-        'frames': frames,
-    }
+    return res
 
 def main():
     ap = argparse.ArgumentParser()
