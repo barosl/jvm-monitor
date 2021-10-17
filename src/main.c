@@ -103,6 +103,8 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
         jvmtiLineNumberEntry *lines = NULL;
         jvmtiLocalVariableEntry *vars = NULL;
         jint var_cnt = 0;
+        char *method_cls_sig = NULL;
+        char *method_cls_gen = NULL;
 
         err = (*jvmti)->GetMethodName(jvmti, frame->method, &method_name, &method_sig, &method_gen);
         if (err) {
@@ -126,10 +128,25 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
             }
         }
 
+        jclass method_cls;
+        err = (*jvmti)->GetMethodDeclaringClass(jvmti, frame->method, &method_cls);
+        if (err) {
+            fprintf(stderr, PROG ": GetMethodDeclaringClass() failed: %d\n", err);
+            goto finalize_frame;
+        }
+
+        err = (*jvmti)->GetClassSignature(jvmti, method_cls, &method_cls_sig, &method_cls_gen);
+        if (err) {
+            fprintf(stderr, PROG ": GetClassSignature() failed: %d\n", err);
+            goto finalize_frame;
+        }
+
         fprintf(sel_log_fp, "frame_idx=%d\n", frame_idx);
         fprintf(sel_log_fp, "method_name=%s\n", method_name);
         fprintf(sel_log_fp, "method_sig=%s\n", method_sig);
         fprintf(sel_log_fp, "line_num=%d\n", line_num);
+        fprintf(sel_log_fp, "method_cls_sig=%s\n", method_cls_sig);
+        fprintf(sel_log_fp, "method_cls_gen=%s\n", method_cls_gen);
 
         err = (*jvmti)->GetLocalVariableTable(jvmti, frame->method, &var_cnt, &vars);
         if (err && err != JVMTI_ERROR_ABSENT_INFORMATION && err != JVMTI_ERROR_NATIVE_METHOD) {
@@ -184,7 +201,7 @@ static void JNICALL on_exc(jvmtiEnv *jvmti, JNIEnv *env, jthread thread, jmethod
 
                 fprintf(sel_log_fp, "local_type=object\n");
                 fprintf(sel_log_fp, "local_cls_sig=%s\n", slot_cls_sig);
-                fprintf(sel_log_fp, "local_to_string_text=%s\n", slot_to_string_text);
+                fprintf(sel_log_fp, "local_val=%s\n", slot_to_string_text);
 
 finalize_slot_obj:
                 (*env)->ReleaseStringUTFChars(env, slot_to_string_ret, slot_to_string_text);
@@ -236,6 +253,8 @@ finalize_frame:
             (*jvmti)->Deallocate(jvmti, (void*)vars[i].generic_signature);
         }
 
+        (*jvmti)->Deallocate(jvmti, (void*)method_cls_sig);
+        (*jvmti)->Deallocate(jvmti, (void*)method_cls_gen);
         (*jvmti)->Deallocate(jvmti, (void*)method_name);
         (*jvmti)->Deallocate(jvmti, (void*)method_sig);
         (*jvmti)->Deallocate(jvmti, (void*)method_gen);

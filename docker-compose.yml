@@ -2,3 +2,6 @@ version: '3.7'
 services:
   app:
     build: .
+    ports:
+      - 7942:8000
+    init: true

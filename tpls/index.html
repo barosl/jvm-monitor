@@ -1,0 +1,48 @@
+<meta charset="utf-8">
+<title>Stack trace viewer</title>
+<style>
+body { font-size: 20px; }
+.exc { display: none; }
+#wrapper { display: grid; grid-template-columns: [menu] 300px [content] auto [end]; }
+#menu { grid-column-start: menu; grid-column-end: content; }
+#content { grid-column-start: content; grid-column-end: end; }
+</style>
+<script>
+let prevExcEl = null;
+function onClickExc(ev) {
+    ev.preventDefault();
+    const el = document.querySelector(`#exc_${ev.target.dataset.idx}`);
+    if (prevExcEl) {
+        prevExcEl.style.display = '';
+    }
+    prevExcEl = el;
+    el.style.display = 'block';
+}
+</script>
+
+<div id="wrapper">
+
+<div id="menu">
+{% for row in db %}
+    <p><a href="#" onclick="onClickExc(event);" data-idx="{{loop.index0}}">{{row.exc_cls_sig}}</a></p>
+{% endfor %}
+</div>
+
+<div id="content">
+{% for row in db %}
+<div class="exc" id="exc_{{loop.index0}}">
+    <p>Exception: {{row.exc_cls_sig}} ({{row.exc_to_string_text}})</p>
+    {% for frame in row.frames %}
+    <hr>
+    <p>Method: {{frame.method_name}} ({{frame.method_sig}}) @ {{frame.method_cls_sig}}:{{frame.line_num}}</p>
+    <ul>
+    {% for local in frame.locals %}
+        <li>{{local.name}} ({% if local.type == 'object' %}{{local.cls_sig}}{% else %}{{local.type}}{% endif %}) = {{local.val}}</li>
+    {% endfor %}
+    </ul>
+    {% endfor %}
+</div>
+{% endfor %}
+</div>
+
+</div>
