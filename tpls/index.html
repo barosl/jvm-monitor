@@ -31,13 +31,13 @@ function onClickExc(ev) {
 <div id="content">
 {% for row in db %}
 <div class="exc" id="exc_{{loop.index0}}">
-    <p>Exception: <b>{{row.exc_cls_sig}}</b> [{{row.exc_to_string_text}}]</p>
+    <p>Exception: {{row.exc_cls_sig|emp_last_word}} [{{row.exc_to_string_text}}]</p>
     {% for frame in row.frames %}
     <hr>
-    <p>Method: <b>{{frame.method_cls_sig}}::{{frame.method_name}}</b> ({{frame.method_sig}}) @ Line {{frame.line_num}}</p>
+    <p>Method: {{frame.method_cls_sig}}::<b>{{frame.method_name}}</b> ({{frame.method_sig}}) @ Line {{frame.line_num}}</p>
     <ul>
     {% for local in frame.locals %}
-        <li><b>{{local.name}}</b> ({% if local.type == 'object' %}{{local.cls_sig}}{% else %}{{local.type}}{% endif %}) = {{local.val}}</li>
+        <li><b>{{local.name}}</b> ({% if local.type == 'object' %}{{local.cls_sig|emp_last_word}}{% else %}{{local.type}}{% endif %}) = {{local.val}}</li>
     {% endfor %}
     </ul>
     {% endfor %}
